@@ -13,7 +13,7 @@ import pandas as pd
 import clickhouse_connect
 
 # устанавливаем параметры по умолчанию
-defaultargs = {
+default_args = {
     'owner': 'airflow',
     'start_date': datetime(2023, 1, 1),
     'email': ['airflow@sky.pro', 'DE@sky.pro'],
@@ -81,7 +81,7 @@ def pipeline():
 # устанавливаем параметры DAG'a, время запуска в формате крона - ежедневно в 3 утра
 with DAG(
     dag_id='daily_etl', 
-    defaultargs=defaultargs, 
+    default_args=default_args, 
     catchup=False, 
     schedule_interval='0 3 * * *'
     ) as dag:
