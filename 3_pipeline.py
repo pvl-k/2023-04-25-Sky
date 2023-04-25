@@ -7,6 +7,7 @@
 from airflow import DAG
 from airflow.operators.python_operator import PythonOperator
 from airflow.operators.email_operator import EmailOperator
+from airflow.hooks.base import BaseHook
 from datetime import date, datetime, timedelta
 from sqlalchemy import create_engine
 import pandas as pd
@@ -80,17 +81,19 @@ def pipeline():
     yesterday = (date.today() - timedelta(days=1)).strftime('%Y-%m-%d')
 
     # создаем подключение к БД PostgreSQL
-    conn = create_engine(f'postgresql://{pg_user}:{pg_password}@{pg_hostname}/db_name')
+    postgres_conn = BaseHook.get_connection('postgres')
+    connection = create_engine(f'postgresql://{postgres_conn.login}:{postgres_conn.password}@{postgres_conn.host}/{postgres_conn.schema}')
 
     # запускаем SELECT из posgres
-    df = postgres_select(conn, yesterday)
+    df = postgres_select(connection, yesterday)
 
     # переопределяем типы данных в датафрейме и записываем csv-файл на диск
     datatype_change(df, yesterday)
     
     # создаем подключение к БД ClickHouse
-    client = clickhouse_connect.get_client(host=ch_hostname, port=8443, 
-                                    username=ch_user, password=ch_password, 
+    clickhouse_conn = BaseHook.get_connection('clickhouse')
+    client = clickhouse_connect.get_client(host=clickhouse_conn.host, port=clickhouse_conn.port, 
+                                    username=clickhouse_conn.login, password=clickhouse_conn.password, 
                                     secure=True)
     
     # записываеv датафрейм в ClickHouse
