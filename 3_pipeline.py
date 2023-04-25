@@ -29,23 +29,6 @@ default_args = {
     'retrydelay': timedelta(minutes=10)
 }
 
-# для того, чтобы не хранить логин, пароль, hostname в коде, записываем их в txt-файлы и добавляем эти файлы в gitignore
-
-# для подключения к PostgreSQL
-with open('pg_user.txt', 'r', encoding='utf-8') as fp:
-    pg_user = fp.read().rstrip()
-with open('pg_user_password.txt', 'r', encoding='utf-8') as fp:
-    pg_password = fp.read().rstrip()
-with open('pg_hostname.txt', 'r', encoding='utf-8') as fp:
-    pg_hostname = fp.read().rstrip()
-# для подключения к ClickHouse
-with open('ch_user.txt', 'r', encoding='utf-8') as fp:
-    ch_user = fp.read().rstrip()
-with open('ch_user_password.txt', 'r', encoding='utf-8') as fp:
-    ch_password = fp.read().rstrip()
-with open('ch_hostname.txt', 'r', encoding='utf-8') as fp:
-    ch_hostname = fp.read().rstrip()
-
 # функция выгрузки данных из созданного VIEW в базе Postgres
 def postgres_select(connection, yesterday):
     # т.к. SELECT выполняем из специально подготовленного для этих целей VIEW, то не указываем столбцы поименно, чтобы не загромождать код ДАГа
