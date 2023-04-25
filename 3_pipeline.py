@@ -11,11 +11,16 @@ from datetime import date, datetime, timedelta
 from sqlalchemy import create_engine
 import pandas as pd
 import clickhouse_connect
+import pendulum
 
-# устанавливаем параметры по умолчанию
+
+# установливаем местное время
+local_tz = pendulum.timezone("Europe/Moscow")
+
+# устанавливаем параметры DAG'а
 default_args = {
-    'owner': 'airflow',
-    'start_date': datetime(2023, 1, 1),
+    'owner': 'DE',
+    'start_date': datetime(2023, 1, 1, tzinfo=local_tz),
     'email': ['airflow@sky.pro', 'DE@sky.pro'],
     'email_on_failure': True,
     'email_on_retry': False,
@@ -40,24 +45,18 @@ with open('ch_user_password.txt', 'r', encoding='utf-8') as fp:
 with open('ch_hostname.txt', 'r', encoding='utf-8') as fp:
     ch_hostname = fp.read().rstrip()
 
-# определяем функцию, которая будет выполнять ETL
-def pipeline():
-    
-    # получаем вчершнюю дату для sql-запроса и правильного именования CSV-файла, в который будем сохранять датафрейм
-    yesterday = (date.today() - timedelta(days=1)).strftime('%Y-%m-%d')
-    
-    # создаем подключение к БД PostgreSQL
-    conn = create_engine(f'postgresql://{pg_user}:{pg_password}@{pg_hostname}/db_name')
-    
-    # т.к. SELECT выполняем из специально подготовленного для этих целей VIEW, то не указываем столбцы поименно, чтобы не загромождать код
+# функция выгрузки данных из созданного VIEW в базе Postgres
+def postgres_select(connection, yesterday):
+    # т.к. SELECT выполняем из специально подготовленного для этих целей VIEW, то не указываем столбцы поименно, чтобы не загромождать код ДАГа
     sql_query = f'SELECT * FROM Lessons_View WHERE lesson_start_at = "{yesterday}";'
-    
     # сохраняем полученную выгрузку в датафрейм
-    df = pd.read_sql_query(sql_query, conn)
-    
+    df = pd.read_sql_query(sql_query, connection)
     # Рвем подключение к БД PostgreSQL
-    conn.dispose()
-    
+    connection.dispose()
+    return df
+
+# функция переопределения типов данных по столбцам и записи csv-файла на диск (при отсутствии необходимости в записи, можно закомментировать)
+def datatype_change(df, yesterday):
     # переопределяем типы данных по столбцам
     df.astype({'lesson_id': 'uint64', 'lesson_title': 'str', 'lesson_description': 'str', 'lesson_start_at': 'datetime64',
                'lesson_end_at': 'datetime64', 'lesson_homework_url': 'str', 'lesson_teacher': 'uint32', 'lesson_join_url': 'str',
@@ -65,18 +64,37 @@ def pipeline():
                'module_updated_at': 'datetime64', 'module_order_in_stream': 'uint8', 'stream_id': 'uint32', 'stream_name': 'str', 'stream_description': 'str',
                'stream_start_at': 'datetime64', 'stream_end_at': 'datetime64', 'stream_created_at': 'datetime64', 'stream_updated_at': 'datetime64',
                'course_id': 'uint16', 'course_title': 'str', 'course_description': 'str', 'course_created_at': 'datetime64', 'course_updated_at': 'datetime64'})
-
-    # сохраняем датафрейм в CSV-файл
+    # сохраняем датафрейм в CSV-файл, если такая необходимость есть
     df.to_csv(f'{yesterday}.csv', index=False)
+    return df
 
+def click_insert(client, df):
+    # загружаем датафрейм в таблицу "lessons" ClickHouse
+    client.insert_df('dbname.lessons', df)
+
+
+# определяем общую функцию, которая будет выполнять ETL
+def pipeline():
+
+    # получаем вчершнюю дату для sql-запроса и правильного именования CSV-файла, в который будем сохранять датафрейм
+    yesterday = (date.today() - timedelta(days=1)).strftime('%Y-%m-%d')
+
+    # создаем подключение к БД PostgreSQL
+    conn = create_engine(f'postgresql://{pg_user}:{pg_password}@{pg_hostname}/db_name')
+
+    # запускаем SELECT из posgres
+    df = postgres_select(conn, yesterday)
+
+    # переопределяем типы данных в датафрейме и записываем csv-файл на диск
+    datatype_change(df, yesterday)
+    
     # создаем подключение к БД ClickHouse
     client = clickhouse_connect.get_client(host=ch_hostname, port=8443, 
                                     username=ch_user, password=ch_password, 
                                     secure=True)
     
-    # загружаем датафрейм в ClickHouse
-    client.insert_df('dbname.lessons', df)
-
+    # записываеv датафрейм в ClickHouse
+    click_insert(client, df)
 
 # устанавливаем параметры DAG'a, время запуска в формате крона - ежедневно в 3 утра
 with DAG(
@@ -86,7 +104,7 @@ with DAG(
     schedule_interval='0 3 * * *'
     ) as dag:
 
-    # вызываем Python-функцию для ETL    
+    # вызываем функцию для ETL    
     etl_pipeline = PythonOperator(
         task_id='etl_pipeline',
         python_callable=pipeline
