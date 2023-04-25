@@ -15,7 +15,7 @@ import clickhouse_connect
 import pendulum
 
 
-# установливаем местное время
+# установливаем локальное время
 local_tz = pendulum.timezone("Europe/Moscow")
 
 # устанавливаем параметры DAG'а
@@ -57,7 +57,7 @@ def click_insert(client, df):
     client.insert_df('dbname.lessons', df)
 
 
-# определяем общую функцию, которая будет выполнять ETL
+# определяем основную функцию, которая будет выполнять ETL
 def pipeline():
 
     # получаем вчершнюю дату для sql-запроса и правильного именования CSV-файла, в который будем сохранять датафрейм
@@ -96,7 +96,7 @@ with DAG(
         python_callable=pipeline
     )
 
-    # уведомление о завершении ETL-процесса
+    # отправляем уведомление о завершении ETL-процесса
     email_notification = EmailOperator(
         task_id='send_email',
         to='airflow@sky.pro',
